@@ -97,6 +97,13 @@ var jsonCoverage = false;
 var jsonFile;
 
 /**
+ * junit style XML output
+ */
+var xmlOutput = false;
+var xmlPath;
+var output = [];
+
+/**
  * Usage documentation.
  */
 
@@ -115,6 +122,7 @@ var usage = ''
     + '\n  -p, --port NUM       Port number for test servers, starts at 5555'
     + '\n  -s, --serial         Execute tests serially'
     + '\n  -b, --boring         Suppress ansi-escape colors'
+    + '\n  -x, --xml PATH       Generate junit style output files to PATH'
     + '\n  -v, --version        Output version number'
     + '\n  -h, --help           Display help information'
     + '\n';
@@ -211,6 +219,16 @@ while (args.length) {
                 jsonFile = path.normalize(arg);
             } else {
                 throw new Error('--json requires file to write to');
+            }
+            break;
+        case '-x':
+        case '--xml':
+            xmlOutput = true;
+            if (arg = args.shift()) {
+                xmlPath = path.normalize(arg);
+                // TODO: Check the direcoty exists
+            } else {
+                throw new Error('--xml requires directory to write to');
             }
             break;
         default:
@@ -787,6 +805,10 @@ function error(suite, test, err) {
             ? test
             : suite + ' ' + test;
     print('\n   [bold]{' + label + '}: [red]{' + name + '}' + stack + '\n');
+
+    output[suite] += '    <failure message="message" type="type">';
+    output[suite] += '' + label + ': ' + name + '' + stack;
+    output[suite] += '</failure>\n';
 }
 
 /**
@@ -807,6 +829,8 @@ function runSuite(title, tests, fn) {
     // Setup
     var setup = tests.setup || function(fn){ fn(); };
     var teardown = tests.teardown || function(fn){ fn(); };
+
+    output[title] = "";
 
     // Iterate tests
     (function next(){
@@ -849,8 +873,11 @@ function runSuite(title, tests, fn) {
                             });
                         });
                     }
+                    output[title] += '  <testcase classname="' + title + '" name="' + key + '" time="0.01"/>\n';
                 } catch (err) {
+                    output[title] += '  <testcase classname="' + title + '" name="' + key + '" time="0.01">\n';
                     error(title, key, err);
+                    output[title] += '  </testcase>\n';
                 }
             }
             if (!serial) next();
@@ -858,6 +885,15 @@ function runSuite(title, tests, fn) {
           fn();
         }
     })();
+    output[title] = '<testsuite errors="0" failures="' + failures + '" hostname="" name="' + title + '" ' +
+                     'tests="' + testcount + '" time="0.134" timestamp="2011-06-13T20:59:50">\n' + output[title];
+    output[title] += '  <system-out>';
+    output[title] += 'this is system.out';
+    output[title] += '</system-out>\n';
+    output[title] += '  <system-err>';
+    output[title] += 'this is system.err';
+    output[title] += '  </system-err>\n';
+    output[title] += '</testsuite>\n';
 }
 
 /**
@@ -867,6 +903,11 @@ function runSuite(title, tests, fn) {
 function report() {
     cursor(true);
     process.emit('beforeExit');
+    if (xmlOutput) {
+        var fn = "TEST-" + title + ".xml";
+        var fd = fs.openSync(fn, "w");
+        fs.write(fd, output[title]);
+    }
     if (failures) {
         print('\n   [bold]{Failures}: [red]{' + failures + '}\n\n');
         notify('Failures: ' + failures);
