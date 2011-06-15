@@ -894,6 +894,12 @@ function runSuite(title, tests, fn) {
     output[title] += 'this is system.err';
     output[title] += '  </system-err>\n';
     output[title] += '</testsuite>\n';
+
+    if (xmlOutput) {
+        var fn = "TEST-" + title + ".xml";
+        var fd = fs.openSync(fn, "w");
+        fs.write(fd, output[title]);
+    }
 }
 
 /**
@@ -903,11 +909,6 @@ function runSuite(title, tests, fn) {
 function report() {
     cursor(true);
     process.emit('beforeExit');
-    if (xmlOutput) {
-        var fn = "TEST-" + title + ".xml";
-        var fd = fs.openSync(fn, "w");
-        fs.write(fd, output[title]);
-    }
     if (failures) {
         print('\n   [bold]{Failures}: [red]{' + failures + '}\n\n');
         notify('Failures: ' + failures);
