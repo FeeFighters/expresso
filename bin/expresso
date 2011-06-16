@@ -17,6 +17,8 @@ var assert = require('assert'),
     sys = require('sys'),
     cwd = process.cwd(),
     fs = require('fs'),
+    util = require('util'),
+    events = require('events'),
     defer;
 
 /**
@@ -102,6 +104,18 @@ var jsonFile;
 var xmlOutput = false;
 var xmlPath;
 var xmlData = [];
+
+function MyStream(xml, stream) {
+    this.xml = xml;
+    this.stream = stream;
+}
+util.inherits(MyStream, events.EventEmitter);
+MyStream.prototype.write = function(data) {
+    if (this.xml[this.stream] === undefined) {
+        this.xml[this.stream] = "";
+    }
+    this.xml[this.stream] += data;
+}
 
 /**
  * Usage documentation.
@@ -836,6 +850,17 @@ function runSuite(title, tests, fn) {
     xmlData[title].failures = 0;
     xmlData[title].testcount = 0;
 
+    var saveStdout, saveStderr;
+    if (xmlOutput) {
+        saveStdout = process.stdout;
+        saveStderr = process.stderr;
+        process.stdout = new MyStream(xmlData[title], "stdout");
+        process.stderr = new MyStream(xmlData[title], "stderr");
+    }
+
+    console.log("------");
+    console.error("xxxxxx");
+
     // Iterate tests
     (function next(){
         if (keys.length) {
@@ -890,15 +915,29 @@ function runSuite(title, tests, fn) {
           fn();
         }
     })();
-    xmlData[title].contents = '<testsuite errors="0" failures="' + xmlData[title].failures + '" hostname="" name="' + title + '" ' +
-                     'tests="' + xmlData[title].testcount + '" time="0.134" timestamp="2011-06-13T20:59:50">\n' + xmlData[title].contents;
-    xmlData[title].contents += '  <system-out>';
-    xmlData[title].contents += 'this is system.out';
-    xmlData[title].contents += '</system-out>\n';
-    xmlData[title].contents += '  <system-err>';
-    xmlData[title].contents += 'this is system.err';
-    xmlData[title].contents += '  </system-err>\n';
+
+    xmlData[title].contents = '<testsuite errors="0" ' +
+                                         'failures="' + xmlData[title].failures + '" ' +
+                                         'hostname="" ' +
+                                         'name="' + title + '" ' +
+                                         'tests="' + xmlData[title].testcount + '" ' +
+                                         'time="0.134" ' +
+                                         'timestamp="2011-06-13T20:59:50">\n' +
+                                         xmlData[title].contents;
+    if (xmlData[title].stdout !== undefined) {
+        xmlData[title].contents += '  <system-out>' + xmlData[title].stdout + '</system-out>\n';
+    }
+    if (xmlData[title].stderr !== undefined) {
+        xmlData[title].contents += '  <system-err>' + xmlData[title].stderr + '</system-err>\n';
+    }
     xmlData[title].contents += '</testsuite>\n';
+
+    if (saveStdout) {
+        process.stdout = saveStdout;
+    }
+    if (saveStderr) {
+        process.stderr = saveStderr;
+    }
 }
 
 /**
