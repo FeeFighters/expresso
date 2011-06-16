@@ -101,7 +101,7 @@ var jsonFile;
  */
 var xmlOutput = false;
 var xmlPath;
-var output = [];
+var xmlData = [];
 
 /**
  * Usage documentation.
@@ -806,9 +806,10 @@ function error(suite, test, err) {
             : suite + ' ' + test;
     print('\n   [bold]{' + label + '}: [red]{' + name + '}' + stack + '\n');
 
-    output[suite] += '    <failure message="message" type="type">';
-    output[suite] += '' + label + ': ' + name + '' + stack;
-    output[suite] += '</failure>\n';
+    xmlData[suite].contents += '    <failure message="message" type="type">';
+    xmlData[suite].contents += '' + label + ': ' + name + '' + stack;
+    xmlData[suite].contents += '</failure>\n';
+    xmlData[suite].failures += 1;
 }
 
 /**
@@ -830,7 +831,10 @@ function runSuite(title, tests, fn) {
     var setup = tests.setup || function(fn){ fn(); };
     var teardown = tests.teardown || function(fn){ fn(); };
 
-    output[title] = "";
+    xmlData[title] = {};
+    xmlData[title].contents = "";
+    xmlData[title].failures = 0;
+    xmlData[title].testcount = 0;
 
     // Iterate tests
     (function next(){
@@ -844,6 +848,7 @@ function runSuite(title, tests, fn) {
             if (test) {
                 try {
                     ++testcount;
+                    xmlData[title].testcount += 1;
                     assert.testTitle = key;
                     if (serial) {
                         sys.print('.');
@@ -873,11 +878,11 @@ function runSuite(title, tests, fn) {
                             });
                         });
                     }
-                    output[title] += '  <testcase classname="' + title + '" name="' + key + '" time="0.01"/>\n';
+                    xmlData[title].contents += '  <testcase classname="' + title + '" name="' + key + '" time="0.01"/>\n';
                 } catch (err) {
-                    output[title] += '  <testcase classname="' + title + '" name="' + key + '" time="0.01">\n';
+                    xmlData[title].contents += '  <testcase classname="' + title + '" name="' + key + '" time="0.01">\n';
                     error(title, key, err);
-                    output[title] += '  </testcase>\n';
+                    xmlData[title].contents += '  </testcase>\n';
                 }
             }
             if (!serial) next();
@@ -885,21 +890,15 @@ function runSuite(title, tests, fn) {
           fn();
         }
     })();
-    output[title] = '<testsuite errors="0" failures="' + failures + '" hostname="" name="' + title + '" ' +
-                     'tests="' + testcount + '" time="0.134" timestamp="2011-06-13T20:59:50">\n' + output[title];
-    output[title] += '  <system-out>';
-    output[title] += 'this is system.out';
-    output[title] += '</system-out>\n';
-    output[title] += '  <system-err>';
-    output[title] += 'this is system.err';
-    output[title] += '  </system-err>\n';
-    output[title] += '</testsuite>\n';
-
-    if (xmlOutput) {
-        var fn = "TEST-" + title + ".xml";
-        var fd = fs.openSync(fn, "w");
-        fs.write(fd, output[title]);
-    }
+    xmlData[title].contents = '<testsuite errors="0" failures="' + xmlData[title].failures + '" hostname="" name="' + title + '" ' +
+                     'tests="' + xmlData[title].testcount + '" time="0.134" timestamp="2011-06-13T20:59:50">\n' + xmlData[title].contents;
+    xmlData[title].contents += '  <system-out>';
+    xmlData[title].contents += 'this is system.out';
+    xmlData[title].contents += '</system-out>\n';
+    xmlData[title].contents += '  <system-err>';
+    xmlData[title].contents += 'this is system.err';
+    xmlData[title].contents += '  </system-err>\n';
+    xmlData[title].contents += '</testsuite>\n';
 }
 
 /**
@@ -909,6 +908,13 @@ function runSuite(title, tests, fn) {
 function report() {
     cursor(true);
     process.emit('beforeExit');
+    if (xmlOutput) {
+        for (title in xmlData) {
+            var fn = "TEST-" + title + ".xml";
+            var fd = fs.openSync(fn, "w");
+            fs.write(fd, xmlData[title].contents);
+        }
+    }
     if (failures) {
         print('\n   [bold]{Failures}: [red]{' + failures + '}\n\n');
         notify('Failures: ' + failures);
