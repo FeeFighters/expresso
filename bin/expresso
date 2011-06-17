@@ -114,7 +114,7 @@ MyStream.prototype.write = function(data) {
     if (this.xml[this.stream] === undefined) {
         this.xml[this.stream] = "";
     }
-    this.xml[this.stream] += data;
+    this.xml[this.stream] += data.toString("utf8");
 }
 
 /**
@@ -858,9 +858,6 @@ function runSuite(title, tests, fn) {
         process.stderr = new MyStream(xmlData[title], "stderr");
     }
 
-    console.log("------");
-    console.error("xxxxxx");
-
     // Iterate tests
     (function next(){
         if (keys.length) {
@@ -916,7 +913,8 @@ function runSuite(title, tests, fn) {
         }
     })();
 
-    xmlData[title].contents = '<testsuite errors="0" ' +
+    xmlData[title].contents = '<?xml version="1.0" encoding="UTF-8" ?>\n' +
+                              '<testsuite errors="0" ' +
                                          'failures="' + xmlData[title].failures + '" ' +
                                          'hostname="" ' +
                                          'name="' + title + '" ' +
@@ -925,10 +923,10 @@ function runSuite(title, tests, fn) {
                                          'timestamp="2011-06-13T20:59:50">\n' +
                                          xmlData[title].contents;
     if (xmlData[title].stdout !== undefined) {
-        xmlData[title].contents += '  <system-out>' + xmlData[title].stdout + '</system-out>\n';
+        xmlData[title].contents += '  <system-out><![CDATA[' + xmlData[title].stdout + ']]></system-out>\n';
     }
     if (xmlData[title].stderr !== undefined) {
-        xmlData[title].contents += '  <system-err>' + xmlData[title].stderr + '</system-err>\n';
+        xmlData[title].contents += '  <system-err><![CDATA[' + xmlData[title].stderr + ']]></system-err>\n';
     }
     xmlData[title].contents += '</testsuite>\n';
 
@@ -950,8 +948,7 @@ function report() {
     if (xmlOutput) {
         for (title in xmlData) {
             var fn = "TEST-" + title + ".xml";
-            var fd = fs.openSync(fn, "w");
-            fs.write(fd, xmlData[title].contents);
+            fs.writeFileSync(fn, xmlData[title].contents, "utf8");
         }
     }
     if (failures) {
