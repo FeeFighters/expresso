@@ -136,7 +136,7 @@ var usage = ''
     + '\n  -p, --port NUM       Port number for test servers, starts at 5555'
     + '\n  -s, --serial         Execute tests serially'
     + '\n  -b, --boring         Suppress ansi-escape colors'
-    + '\n  -x, --xml PATH       Generate junit style output files to PATH'
+    + '\n  -x, --xml PATH       Generate junit (and cobertura with --coverage) style XML files to PATH'
     + '\n  -v, --version        Output version number'
     + '\n  -h, --help           Display help information'
     + '\n';
@@ -203,6 +203,7 @@ while (args.length) {
         case '-c':
         case '--cov':
         case '--coverage':
+console.log("coverage");
             defer = true;
             childProcess.exec('rm -fr lib-cov && node-jscoverage lib lib-cov', function(err){
                 if (err) throw err;
@@ -240,7 +241,7 @@ while (args.length) {
             xmlOutput = true;
             if (arg = args.shift()) {
                 xmlPath = path.normalize(arg);
-                // TODO: Check the direcoty exists
+                // TODO: Check the directory exists
             } else {
                 throw new Error('--xml requires directory to write to');
             }
@@ -646,6 +647,31 @@ function reportCoverageJson(cov) {
     fs.writeFileSync(jsonFile, JSON.stringify(report), "utf8");
 }
 
+function reportTestsXml() {
+}
+
+function reportCoverageXml(cov) {
+    var fn = xmlPath + "/coverage.xml";
+    console.log("createing " + fn);
+    var report = '<?xml version="1.0" ?>\n' +
+                 "<!DOCTYPE coverage \n" +
+                 "    SYSTEM 'http://cobertura.sourceforge.net/xml/coverage-03.dtd'>\n" +
+                 '<coverage>\n';
+//                         '    <sources>\n' +
+//                         '        <source>\n' +
+//                         '        </source>\n' +
+//                         '    </sources>\n' +
+    report +=    '    <packages>\n' +
+                 '        <package branch-rate="0" complexity="0.0" line-rate="0" name="application">\n' +
+                 '            <classes>\n';
+    report +=    '            </classes>\n' +
+                 '        </package>\n' +
+                 '    </packages>\n' +
+                 '</coverage>\n';
+
+    fs.writeFileSync(fn, report, "utf8");
+}
+
 /**
  * Populate code coverage data.
  *
@@ -943,11 +969,13 @@ function runSuite(title, tests, fn) {
  */
 
 function report() {
+console.log("report 1");
     cursor(true);
     process.emit('beforeExit');
     if (xmlOutput) {
+console.log("report 2");
         for (title in xmlData) {
-            var fn = "TEST-" + title + ".xml";
+            var fn = xmlPath + "/TEST-" + title + ".xml";
             fs.writeFileSync(fn, xmlData[title].contents, "utf8");
         }
     }
@@ -959,10 +987,21 @@ function report() {
         print('\n   [green]{100%} ' + testcount + ' tests\n');
         notify('100% ok');
     }
+console.log("report 3");
     if (typeof _$jscoverage === 'object') {
+console.log("report 4");
         populateCoverage(_$jscoverage);
+        if (xmlOutput) {
+console.log("report 5");
+            reportCoverageXml(_$jscoverage);
+        }
         if (!hasFullCoverage(_$jscoverage) || !quiet) {
-            (jsonCoverage ? reportCoverageJson(_$jscoverage) : reportCoverageTable(_$jscoverage));
+            if (jsonCoverage) {
+                reportCoverageJson(_$jscoverage);
+            }
+            if (!xmlOutput && !jsonCoverage) {
+                reportCoverageTable(_$jscoverage);
+            }
         }
     }
 }
