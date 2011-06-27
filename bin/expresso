@@ -101,9 +101,10 @@ var jsonFile;
 /**
  * junit style XML output
  */
-var xmlOutput = false;
 var xmlPath;
+var xmlPackage;
 var xmlData = [];
+var xmlOutput = false;
 
 function MyStream(xml, stream) {
     this.xml = xml;
@@ -137,6 +138,7 @@ var usage = ''
     + '\n  -s, --serial         Execute tests serially'
     + '\n  -b, --boring         Suppress ansi-escape colors'
     + '\n  -x, --xml PATH       Generate junit (and cobertura with --coverage) style XML files to PATH'
+    + '\n  -k, --package PACK   '
     + '\n  -v, --version        Output version number'
     + '\n  -h, --help           Display help information'
     + '\n';
@@ -203,7 +205,6 @@ while (args.length) {
         case '-c':
         case '--cov':
         case '--coverage':
-console.log("coverage");
             defer = true;
             childProcess.exec('rm -fr lib-cov && node-jscoverage lib lib-cov', function(err){
                 if (err) throw err;
@@ -244,6 +245,14 @@ console.log("coverage");
                 // TODO: Check the directory exists
             } else {
                 throw new Error('--xml requires directory to write to');
+            }
+            break;
+        case '-k':
+        case '--package':
+            if (arg = args.shift()) {
+                xmlPackage = arg;
+            } else {
+                throw new Error('--package requires package name');
             }
             break;
         default:
@@ -652,21 +661,43 @@ function reportTestsXml() {
 
 function reportCoverageXml(cov) {
     var fn = xmlPath + "/coverage.xml";
-    console.log("createing " + fn);
     var report = '<?xml version="1.0" ?>\n' +
                  "<!DOCTYPE coverage \n" +
-                 "    SYSTEM 'http://cobertura.sourceforge.net/xml/coverage-03.dtd'>\n" +
+                 "    SYSTEM 'http://cobertura.sourceforge.net/xml/coverage-04.dtd'>\n" +
                  '<coverage>\n';
-//                         '    <sources>\n' +
-//                         '        <source>\n' +
-//                         '        </source>\n' +
-//                         '    </sources>\n' +
-    report +=    '    <packages>\n' +
-                 '        <package branch-rate="0" complexity="0.0" line-rate="0" name="application">\n' +
-                 '            <classes>\n';
-    report +=    '            </classes>\n' +
-                 '        </package>\n' +
-                 '    </packages>\n' +
+//                 '<coverage line-rate="0.1" branch-rate="0" lines-covered="10" ' +
+//                     'lines-valid="5" branches-covered="0" branches-valid="0" ' +
+//                     'complexity="0" version="1.9.2" timestamp="0">\n';
+    report +=    ' <sources>\n' +
+                 '  <source>weblibs/node-notification/lib</source>\n';
+    report +=    ' </sources>\n';
+    report +=    ' <packages>\n' +
+                 '  <package branch-rate="0" complexity="0.0" line-rate="0" name="' +
+                        xmlPackage + '">\n' +
+                 '   <classes>\n';
+    for (var name in cov) {
+        if (name === "LOC" || name == "SLOC" || name === "totalHits" ||
+                name === "totalMisses" || name === "totalFiles" ||
+                name === "coverage") {
+            continue;
+        }
+        var file = cov[name];
+        report += '<class name="' + name + '" filename="' + name + '" line-rate="' +
+            (file.totalHits / file.totalLines) + '" branch-rate="0" complexity="0">\n';
+//        report += ' <methods>\n';
+//        report += ' </methods>\n';
+        report += ' <lines>\n';
+        for (var line in file) {
+            if (!isNaN(line)) {
+                report += '  <line number="' + line + '" hits="' + file[line] + '" branch="false"/>\n';
+            }
+        }
+        report += ' </lines>\n';
+        report += '</class>\n';
+    }
+    report +=    '   </classes>\n' +
+                 '  </package>\n' +
+                 ' </packages>\n' +
                  '</coverage>\n';
 
     fs.writeFileSync(fn, report, "utf8");
@@ -875,6 +906,10 @@ function runSuite(title, tests, fn) {
     xmlData[title].contents = "";
     xmlData[title].failures = 0;
     xmlData[title].testcount = 0;
+    xmlData[title].packageName = path.basename(title, ".test.js");
+    if (xmlPackage !== undefined) {
+        xmlData[title].packageName = xmlPackage + "." + xmlData[title].packageName;
+    }
 
     var saveStdout, saveStderr;
     if (xmlOutput) {
@@ -926,9 +961,9 @@ function runSuite(title, tests, fn) {
                             });
                         });
                     }
-                    xmlData[title].contents += '  <testcase classname="' + title + '" name="' + key + '" time="0.01"/>\n';
+                    xmlData[title].contents += '  <testcase classname="' + xmlData[title].packageName + '" name="' + key + '" time="0.01"/>\n';
                 } catch (err) {
-                    xmlData[title].contents += '  <testcase classname="' + title + '" name="' + key + '" time="0.01">\n';
+                    xmlData[title].contents += '  <testcase classname="' + xmlData[title].packageName + '" name="' + key + '" time="0.01">\n';
                     error(title, key, err);
                     xmlData[title].contents += '  </testcase>\n';
                 }
@@ -943,9 +978,9 @@ function runSuite(title, tests, fn) {
                               '<testsuite errors="0" ' +
                                          'failures="' + xmlData[title].failures + '" ' +
                                          'hostname="" ' +
-                                         'name="' + title + '" ' +
+                                         'name="' + xmlData[title].packageName + '" ' +
                                          'tests="' + xmlData[title].testcount + '" ' +
-                                         'time="0.134" ' +
+                                         'time="0" ' +
                                          'timestamp="2011-06-13T20:59:50">\n' +
                                          xmlData[title].contents;
     if (xmlData[title].stdout !== undefined) {
@@ -969,13 +1004,11 @@ function runSuite(title, tests, fn) {
  */
 
 function report() {
-console.log("report 1");
     cursor(true);
     process.emit('beforeExit');
     if (xmlOutput) {
-console.log("report 2");
         for (title in xmlData) {
-            var fn = xmlPath + "/TEST-" + title + ".xml";
+            var fn = xmlPath + "/TEST-" + xmlPackage + "." + title + ".xml";
             fs.writeFileSync(fn, xmlData[title].contents, "utf8");
         }
     }
@@ -987,12 +1020,9 @@ console.log("report 2");
         print('\n   [green]{100%} ' + testcount + ' tests\n');
         notify('100% ok');
     }
-console.log("report 3");
     if (typeof _$jscoverage === 'object') {
-console.log("report 4");
         populateCoverage(_$jscoverage);
         if (xmlOutput) {
-console.log("report 5");
             reportCoverageXml(_$jscoverage);
         }
         if (!hasFullCoverage(_$jscoverage) || !quiet) {
