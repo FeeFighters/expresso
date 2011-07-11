@@ -656,9 +656,47 @@ function reportCoverageJson(cov) {
     fs.writeFileSync(jsonFile, JSON.stringify(report), "utf8");
 }
 
-function reportTestsXml() {
+/**
+ * Report test results in jUnit style XML
+ */
+function reportResultsXml() {
+    for (title in xmlData) {
+        var contents = '<?xml version="1.0" encoding="UTF-8" ?>\n' +
+                       '<testsuite errors=' + xmlData[title].errors + '" ' +
+                                  'failures="' + xmlData[title].failures + '" ' +
+                                  'hostname="" ' +
+                                  'name="' + xmlData[title].packageName + '" ' +
+                                  'tests="' + xmlData[title].testcount + '" ' +
+                                  'time="0" ' +
+                                  'timestamp="' + new Date().toUTCString() + '">\n';
+        for (var i = 0; i < xmlData[title].keys.length; i++) {
+            var key = xmlData[title].keys[i];
+            if (xmlData[title].error[key] == undefined) {
+                contents += '  <testcase classname="' + xmlData[title].packageName + '" name="' + key + '" time="0.01"/>\n';
+            } else {
+              contents += '  <testcase classname="' + xmlData[title].packageName + '" name="' + key + '" time="0.01">\n';
+              contents += '    <failure message="message" type="type">';
+              contents += xmlData[title].error[key];
+              contents += '</failure>\n';
+              contents += '  </testcase>\n';
+            }
+        }
+        if (xmlData[title].stdout !== undefined) {
+            contents += '  <system-out><![CDATA[' + xmlData[title].stdout + ']]></system-out>\n';
+        }
+        if (xmlData[title].stderr !== undefined) {
+            contents += '  <system-err><![CDATA[' + xmlData[title].stderr + ']]></system-err>\n';
+        }
+        contents += '</testsuite>\n';
+
+        var fn = xmlPath + "/TEST-" + xmlPackage + "." + title + ".xml";
+        fs.writeFileSync(fn, contents, "utf8");
+    }
 }
 
+/**
+ * Report Test Coverage in Cobertura style XML
+ */
 function reportCoverageXml(cov) {
     var fn = xmlPath + "/coverage.xml";
     var report = '<?xml version="1.0" ?>\n' +
@@ -669,7 +707,7 @@ function reportCoverageXml(cov) {
 //                     'lines-valid="5" branches-covered="0" branches-valid="0" ' +
 //                     'complexity="0" version="1.9.2" timestamp="0">\n';
     report +=    ' <sources>\n' +
-                 '  <source>weblibs/node-notification/lib</source>\n';
+                 '  <source>' + process.cwd() + '/lib</source>\n';
     report +=    ' </sources>\n';
     report +=    ' <packages>\n' +
                  '  <package branch-rate="0" complexity="0.0" line-rate="0" name="' +
@@ -877,10 +915,29 @@ function error(suite, test, err) {
             : suite + ' ' + test;
     print('\n   [bold]{' + label + '}: [red]{' + name + '}' + stack + '\n');
 
-    xmlData[suite].contents += '    <failure message="message" type="type">';
-    xmlData[suite].contents += '' + label + ': ' + name + '' + stack;
-    xmlData[suite].contents += '</failure>\n';
-    xmlData[suite].failures += 1;
+    if (xmlOutput) {
+        xmlData[suite].error[test] = label + ': ' + name + '' + stack;
+    }
+}
+
+var saveStdout, saveStderr;
+function initXmlData(title, keys) {
+    xmlData[title] = {};
+    xmlData[title].keys = keys.slice();
+    xmlData[title].error = {};
+    xmlData[title].errors = 0;
+    xmlData[title].failures = 0;
+    xmlData[title].testcount = 0;
+    xmlData[title].packageName = path.basename(title, ".test.js");
+    if (xmlPackage !== undefined) {
+        xmlData[title].packageName = xmlPackage + "." + xmlData[title].packageName;
+    }
+
+    // redirect stderr and stdout so we can save it in the XML file
+    saveStdout = process.stdout;
+    saveStderr = process.stderr;
+    process.stdout = new MyStream(xmlData[title], "stdout");
+    process.stderr = new MyStream(xmlData[title], "stderr");
 }
 
 /**
@@ -902,21 +959,8 @@ function runSuite(title, tests, fn) {
     var setup = tests.setup || function(fn){ fn(); };
     var teardown = tests.teardown || function(fn){ fn(); };
 
-    xmlData[title] = {};
-    xmlData[title].contents = "";
-    xmlData[title].failures = 0;
-    xmlData[title].testcount = 0;
-    xmlData[title].packageName = path.basename(title, ".test.js");
-    if (xmlPackage !== undefined) {
-        xmlData[title].packageName = xmlPackage + "." + xmlData[title].packageName;
-    }
-
-    var saveStdout, saveStderr;
     if (xmlOutput) {
-        saveStdout = process.stdout;
-        saveStderr = process.stderr;
-        process.stdout = new MyStream(xmlData[title], "stdout");
-        process.stderr = new MyStream(xmlData[title], "stderr");
+        initXmlData(title, keys);
     }
 
     // Iterate tests
@@ -931,7 +975,9 @@ function runSuite(title, tests, fn) {
             if (test) {
                 try {
                     ++testcount;
-                    xmlData[title].testcount += 1;
+                    if (xmlOutput) {
+                        xmlData[title].testcount += 1;
+                    }
                     assert.testTitle = key;
                     if (serial) {
                         sys.print('.');
@@ -961,11 +1007,8 @@ function runSuite(title, tests, fn) {
                             });
                         });
                     }
-                    xmlData[title].contents += '  <testcase classname="' + xmlData[title].packageName + '" name="' + key + '" time="0.01"/>\n';
                 } catch (err) {
-                    xmlData[title].contents += '  <testcase classname="' + xmlData[title].packageName + '" name="' + key + '" time="0.01">\n';
                     error(title, key, err);
-                    xmlData[title].contents += '  </testcase>\n';
                 }
             }
             if (!serial) next();
@@ -973,23 +1016,6 @@ function runSuite(title, tests, fn) {
           fn();
         }
     })();
-
-    xmlData[title].contents = '<?xml version="1.0" encoding="UTF-8" ?>\n' +
-                              '<testsuite errors="0" ' +
-                                         'failures="' + xmlData[title].failures + '" ' +
-                                         'hostname="" ' +
-                                         'name="' + xmlData[title].packageName + '" ' +
-                                         'tests="' + xmlData[title].testcount + '" ' +
-                                         'time="0" ' +
-                                         'timestamp="2011-06-13T20:59:50">\n' +
-                                         xmlData[title].contents;
-    if (xmlData[title].stdout !== undefined) {
-        xmlData[title].contents += '  <system-out><![CDATA[' + xmlData[title].stdout + ']]></system-out>\n';
-    }
-    if (xmlData[title].stderr !== undefined) {
-        xmlData[title].contents += '  <system-err><![CDATA[' + xmlData[title].stderr + ']]></system-err>\n';
-    }
-    xmlData[title].contents += '</testsuite>\n';
 
     if (saveStdout) {
         process.stdout = saveStdout;
@@ -1007,10 +1033,7 @@ function report() {
     cursor(true);
     process.emit('beforeExit');
     if (xmlOutput) {
-        for (title in xmlData) {
-            var fn = xmlPath + "/TEST-" + xmlPackage + "." + title + ".xml";
-            fs.writeFileSync(fn, xmlData[title].contents, "utf8");
-        }
+        reportResultsXml();
     }
     if (failures) {
         print('\n   [bold]{Failures}: [red]{' + failures + '}\n\n');
