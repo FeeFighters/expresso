@@ -662,7 +662,7 @@ function reportCoverageJson(cov) {
 function reportResultsXml() {
     for (title in xmlData) {
         var contents = '<?xml version="1.0" encoding="UTF-8" ?>\n' +
-                       '<testsuite errors=' + xmlData[title].errors + '" ' +
+                       '<testsuite errors="' + xmlData[title].errors + '" ' +
                                   'failures="' + xmlData[title].failures + '" ' +
                                   'hostname="" ' +
                                   'name="' + xmlData[title].packageName + '" ' +
