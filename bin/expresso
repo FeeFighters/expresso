@@ -22,6 +22,12 @@ var assert = require('assert'),
     defer;
 
 /**
+ * Set the node env to test if it hasn't already been set
+ */
+
+if( !process.env.NODE_ENV ) process.env.NODE_ENV = 'test';
+
+/**
  * Setup the regex which is used to match test files.
  * Adjust it to include coffeescript files if CS is available
  */
@@ -35,7 +41,7 @@ try {
  * Expresso version.
  */
 
-var version = '0.7.7';
+var version = '0.8.1';
 
 /**
  * Failure count.
@@ -407,20 +413,33 @@ assert.length = function(val, n, msg) {
  */
 
 assert.response = function(server, req, res, msg){
+    var suiteTitle = assert.suiteTitle;
+    var testTitle = assert.testTitle;
+    var callbackFn = assert.callbackFn;
+
+    function check(){
+        try {
+            server.__port = server.address().port;
+            server.__listening = true;
+        } catch (err) {
+            process.nextTick(check);
+            return;
+        }
+        if (server.__deferred) {
+            server.__deferred.forEach(function(args){
+                assert.response.apply(assert, args);
+            });
+            server.__deferred = null;
+        }
+    }
+
     // Check that the server is ready or defer
     if (!server.fd) {
         server.__deferred = server.__deferred || [];
-        server.__deferred.push(arguments);
-        server.listen(server.__port = port++, '127.0.0.1', function(){
-            server.__listening = true;
-            if (server.__deferred) {
-                server.__deferred.forEach(function(args){
-                    assert.response.apply(assert, args);
-                });
-                server.__deferred = null;
-            }
-        });
-        return;
+        server.listen(server.__port = port++, '127.0.0.1', check);
+    } else if (!server.__port) {
+        server.__deferred = server.__deferred || [];
+        process.nextTick(check);
     }
 
     // The socket was created but is not yet listening, so keep deferring
@@ -438,7 +457,7 @@ assert.response = function(server, req, res, msg){
 
     // Default messate to test title
     if (typeof msg === 'function') msg = null;
-    msg = msg || assert.testTitle;
+    msg = msg || testTitle;
     msg += '. ';
 
     // Pending responses
@@ -482,7 +501,7 @@ assert.response = function(server, req, res, msg){
             timer = setTimeout(function(){
                 check();
                 delete req.timeout;
-                assert.fail(msg + 'Request timed out after ' + requestTimeout + 'ms.');
+                error(suiteTitle, testTitle, msg + 'Request timed out after ' + requestTimeout + 'ms.');
             }, requestTimeout);
         }
 
@@ -495,52 +514,60 @@ assert.response = function(server, req, res, msg){
             response.on('end', function(){
                 if (timer) clearTimeout(timer);
 
-                // Assert response body
-                if (res.body !== undefined) {
-                    var eql = res.body instanceof RegExp
-                      ? res.body.test(response.body)
-                      : res.body === response.body;
-                    assert.ok(
-                        eql,
-                        msg + 'Invalid response body.\n'
-                            + '    Expected: ' + sys.inspect(res.body) + '\n'
-                            + '    Got: ' + sys.inspect(response.body)
-                    );
-                }
+                try {
 
-                // Assert response status
-                if (typeof status === 'number') {
-                    assert.equal(
-                        response.statusCode,
-                        status,
-                        msg + colorize('Invalid response status code.\n'
-                            + '    Expected: [green]{' + status + '}\n'
-                            + '    Got: [red]{' + response.statusCode + '}')
-                    );
-                }
-
-                // Assert response headers
-                if (res.headers) {
-                    var keys = Object.keys(res.headers);
-                    for (var i = 0, len = keys.length; i < len; ++i) {
-                        var name = keys[i],
-                            actual = response.headers[name.toLowerCase()],
-                            expected = res.headers[name],
-                            eql = expected instanceof RegExp
-                              ? expected.test(actual)
-                              : expected == actual;
+                    // Assert response body
+                    if (res.body !== undefined) {
+                        var eql = res.body instanceof RegExp
+                          ? res.body.test(response.body)
+                          : res.body === response.body;
                         assert.ok(
                             eql,
-                            msg + colorize('Invalid response header [bold]{' + name + '}.\n'
-                                + '    Expected: [green]{' + expected + '}\n'
-                                + '    Got: [red]{' + actual + '}')
+                            msg + 'Invalid response body.\n'
+                                + '    Expected: ' + sys.inspect(res.body) + '\n'
+                                + '    Got: ' + sys.inspect(response.body)
                         );
                     }
-                }
 
-                // Callback
-                callback(response);
-                check();
+                    // Assert response status
+                    if (typeof status === 'number') {
+                        assert.equal(
+                            response.statusCode,
+                            status,
+                            msg + colorize('Invalid response status code.\n'
+                                + '    Expected: [green]{' + status + '}\n'
+                                + '    Got: [red]{' + response.statusCode + '}')
+                        );
+                    }
+
+                    // Assert response headers
+                    if (res.headers) {
+                        var keys = Object.keys(res.headers);
+                        for (var i = 0, len = keys.length; i < len; ++i) {
+                            var name = keys[i],
+                                actual = response.headers[name.toLowerCase()],
+                                expected = res.headers[name],
+                                eql = expected instanceof RegExp
+                                  ? expected.test(actual)
+                                  : expected == actual;
+                            assert.ok(
+                                eql,
+                                msg + colorize('Invalid response header [bold]{' + name + '}.\n'
+                                    + '    Expected: [green]{' + expected + '}\n'
+                                    + '    Got: [red]{' + actual + '}')
+                            );
+                        }
+                    }
+
+                    // Callback
+                    callback(response);
+                } catch (err) {
+                    error(suiteTitle, testTitle, err);
+                    if (callbackFn)
+                      callbackFn();
+                } finally {
+                    check();
+                }
             });
         });
 
@@ -962,6 +989,9 @@ function runSuite(title, tests, fn) {
     if (xmlOutput) {
         initXmlData(title, keys);
     }
+    assert.suiteTitle = title;
+
+    process.setMaxListeners(10 + process.listeners('beforeExit').length  + keys.length);
 
     // Iterate tests
     (function next(){
@@ -990,10 +1020,11 @@ function runSuite(title, tests, fn) {
                                 var id = setTimeout(function(){
                                     throw new Error("'" + key + "' timed out");
                                 }, timeout);
-                                test(function(){
+                                assert.callbackFn = function(){
                                     clearTimeout(id);
                                     teardown(next);
-                                });
+                                };
+                                test(assert.callbackFn);
                             }
                         });
                     } else {
